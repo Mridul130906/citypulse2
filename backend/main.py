@@ -14,13 +14,22 @@ from .session import Session
 from .analysis import area_state
 from .summaries import summarize
 from .normalization import timestamp
+from .serverless import ServerlessMiddleware, request_state
 
-store = Store(os.getenv("CITYPULSE_DB", str(Path(__file__).parent / "citypulse.sqlite")))
+SERVERLESS = os.getenv("VERCEL") == "1" or os.getenv("CITYPULSE_SERVERLESS") == "1"
+store = Store(":memory:" if SERVERLESS else os.getenv("CITYPULSE_DB", str(Path(__file__).parent / "citypulse.sqlite")))
 session = Session(store)
+
+
+def current_state():
+    return request_state.get() or (store, session)
 
 
 @asynccontextmanager
 async def lifespan(app):
+    if SERVERLESS:
+        yield
+        return
     task = asyncio.create_task(session.run())
     yield
     task.cancel()
@@ -32,6 +41,7 @@ async def lifespan(app):
 
 
 app = FastAPI(title="CityPulse — Simulation", lifespan=lifespan)
+app.add_middleware(ServerlessMiddleware, enabled=SERVERLESS)
 
 
 def check_zone(zid):
@@ -40,6 +50,7 @@ def check_zone(zid):
 
 
 def snapshot(zid, route=None):
+    store, session = current_state()
     check_zone(zid)
     if route and not any(r["route_id"] == route and zid in r["zone_ids"] for r in ROUTES):
         raise HTTPException(400, "Choose a route passing through the area")
@@ -89,8 +100,14 @@ async def overview():
     return [{"zone_id": a["zone_id"], "name": a["name"], "rule": snapshot(a["zone_id"])["insight"]["rule"]} for a in AREAS]
 
 
+@app.get("/api/dashboard/{zone_id}")
+async def dashboard(zone_id: str, route: str | None = None):
+    return {"state": snapshot(zone_id, route), "overview": await overview()}
+
+
 @app.get("/api/events")
 async def events(zone_id: str | None = None, source: Literal['weather', 'complaint', 'transit'] | None = None, since: str | None = None, until: str | None = None, limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
+    store, _ = current_state()
     if zone_id:
         check_zone(zone_id)
     try:
@@ -104,6 +121,7 @@ async def events(zone_id: str | None = None, source: Literal['weather', 'complai
 
 @app.get("/api/evidence/{event_id}")
 async def evidence(event_id: str):
+    store, _ = current_state()
     record = store.evidence(event_id)
     if not record:
         raise HTTPException(404, "Event not found")
@@ -117,6 +135,7 @@ async def insights(zone_id: str):
 
 @app.get("/api/simulation")
 async def simulation():
+    _, session = current_state()
     return session.state()
 
 
@@ -140,6 +159,7 @@ class Controls(BaseModel):
 
 @app.post("/api/simulation")
 async def control(body: Controls):
+    store, session = current_state()
     if body.target_zone is not None:
         check_zone(body.target_zone)
         session.target_zone = body.target_zone

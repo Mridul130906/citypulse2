@@ -7,7 +7,7 @@ from .normalization import timestamp
 
 
 class Session:
-    def __init__(self, store):
+    def __init__(self, store, *, resume=False):
         self.store = store
         self.config = dict(DEFAULTS)
         self.tick = 0
@@ -26,7 +26,7 @@ class Session:
             for key in ("tick", "phase_start", "scenario", "target_zone", "speed", "disabled", "seed", "revision", "last_received", "config"):
                 if key in saved:
                     setattr(self, key, saved[key])
-            self.running = False  # Restart is explicit; no wall-clock catch-up.
+            self.running = bool(saved.get("running", False)) if resume else False
             self.config = {**DEFAULTS, **self.config}
         else:
             self.emit()

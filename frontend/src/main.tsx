@@ -20,8 +20,11 @@ const observedHeadlines: Record<string,string> = {
   obstruction_transit:'Road obstruction reports and slower transport may be linked.',
 };
 async function api<T>(path:string, body?:unknown):Promise<T> {
-  const response = await fetch('/api'+path, body ? {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)} : undefined);
-  if(!response.ok) throw new Error(`Request failed (${response.status}). Please retry.`);
+  const response = await fetch('/api'+path, body ? {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(45000)} : {cache:'no-store',signal:AbortSignal.timeout(45000)});
+  if(!response.ok) {
+    const problem = await response.json().catch(()=>null);
+    throw new Error(typeof problem?.detail==='string' ? problem.detail : `Request failed (${response.status}). Please retry.`);
+  }
   return response.json();
 }
 
@@ -35,18 +38,22 @@ function App(){
   const [connected,setConnected] = useState(false), [error,setError] = useState(''), [busy,setBusy] = useState(false);
   const [controls,setControls] = useState(false), [evidence,setEvidence] = useState<unknown>(null);
   const refresh = useCallback(async()=>{
-    try { const [state,grid] = await Promise.all([api<State>(`/state/${zone}${route?'?route='+route:''}`),api<Overview[]>('/overview')]); if(selection.current===zone+':'+route){setData(state); setOverview(grid); setError(''); setAreaLoading(false);} }
-    catch(e){setError((e as Error).message); setAreaLoading(false);}
+    try { const result = await api<{state:State;overview:Overview[]}>(`/dashboard/${zone}${route?'?route='+route:''}`); if(selection.current===zone+':'+route){setData(result.state); setOverview(result.overview); setError(''); setAreaLoading(false); setConnected(true);} }
+    catch(e){if(selection.current===zone+':'+route){setError((e as Error).message); setAreaLoading(false); setConnected(false);}}
   },[zone,route]);
   const refreshRef = useRef(refresh); refreshRef.current = refresh;
   useEffect(()=>{Promise.all([api<Area[]>('/areas'),api<Route[]>('/routes')]).then(([a,r])=>{setAreas(a);setRoutes(r);setRoute(r.find(item=>item.zone_ids.includes('JAG'))?.route_id || '');}).catch(e=>setError(e.message));},[]);
   useEffect(()=>{
-    const source=new EventSource('/api/live');
-    source.onopen=()=>setConnected(true);
-    source.onmessage=()=>{void refreshRef.current();};
-    source.onerror=()=>setConnected(false);
-    return ()=>{source.close();};
-  },[]);
+    if(!started) return;
+    let cancelled=false;
+    let timer:ReturnType<typeof setTimeout>;
+    const poll=async()=>{
+      if(!document.hidden) await refreshRef.current();
+      if(!cancelled) timer=setTimeout(()=>void poll(),2000);
+    };
+    timer=setTimeout(()=>void poll(),2000);
+    return ()=>{cancelled=true;clearTimeout(timer);};
+  },[started]);
   useEffect(()=>{void refresh();},[refresh]);
   async function control(body:unknown){setBusy(true);try{await api('/simulation',body);await refreshRef.current();}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
   function selectZone(id:string){

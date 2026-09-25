@@ -6,6 +6,10 @@ CityPulse combines three independent synthetic streams into a neighborhood dashb
 
 ## Run on Windows PowerShell
 
+For Vercel hosting, see [DEPLOYMENT.md](DEPLOYMENT.md). It documents the FastAPI
+entry point, frontend build, Neon Postgres connection, and the request-driven
+simulation behavior used on Vercel. The instructions below describe local hosting.
+
 Prerequisites: standard CPython **3.11–3.13** from python.org and Node.js **22+** with npm. Avoid MSYS/MinGW Python, which cannot use the standard Windows Pydantic wheels.
 
 From the project directory:
@@ -180,7 +184,7 @@ Invoke-RestMethod 'http://127.0.0.1:8000/api/state/JAG?route=demo-east'
 Invoke-RestMethod http://127.0.0.1:8000/api/simulation -Method Post -ContentType 'application/json' -Body '{"disabled":["weather"],"running":true}'
 ```
 
-The browser fetches an initial snapshot, then refreshes on SSE revisions. EventSource retries after interruptions; each connection receives the current revision immediately and fetches a new snapshot. This recovers **current state**, rather than replaying all missed stream messages. Historical observations remain accessible through paginated events. Simulation controls affect every connected client.
+The browser fetches an initial snapshot, then polls `/api/dashboard/{zone_id}` every two seconds while the dashboard is visible. A successful refresh restores the connection indicator after an interruption. The local `/api/live` SSE endpoint remains available to other clients; Vercel returns a polling transport hint there. Simulation controls affect every connected client. Vercel retains four simulated hours of historical observations; local history remains accessible until reset.
 
 ## Verification
 

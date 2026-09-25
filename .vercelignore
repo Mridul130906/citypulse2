@@ -1,0 +1,10 @@
+.venv/
+.venv-win/
+.runtime/
+**/node_modules/
+**/__pycache__/
+.pytest_cache/
+**/*.sqlite*
+.env
+.env.*
+tests/
