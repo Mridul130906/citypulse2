@@ -1,0 +1,14 @@
+.venv/
+.venv-win/
+.runtime/
+__pycache__/
+.pytest_cache/
+node_modules/
+.npm-cache/
+.env
+.env.*
+!.env.example
+frontend/dist/
+*.sqlite*
+*.log
+*.tsbuildinfo
